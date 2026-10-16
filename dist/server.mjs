@@ -428,15 +428,19 @@ const plugin = {
           // covers every session this machine has transcripts for.
           const cwd = typeof input?.cwd === "string" && input.cwd !== "" ? input.cwd : undefined;
           const until = Date.now() + 60_000;
-          const from = new Date(Date.now() - days * 86_400_000).setHours(0, 0, 0, 0);
+          // days counts today: days=1 is today from local midnight, days=7 is the
+          // last seven calendar days including today. Subtracting first and then
+          // flooring would reach back one day too far.
+          const startOfToday = new Date();
+          startOfToday.setHours(0, 0, 0, 0);
+          const from = startOfToday.getTime() - (days - 1) * 86_400_000;
           const events = (await state.eventsFor(signal)).filter(
             (event) => event.at >= from && (cwd === undefined || event.cwd === cwd),
           );
           const summary = state.summarize(events, until);
           return { ...toClient(summary, state.config), days, scope: cwd === undefined ? "machine" : "project", cwd: cwd ?? "" };
         },
-        "cost.session": async (input, { signal }) => {
-          await state.load(context.storage);
+        "cost.session": async (input, { signal }) => {          await state.load(context.storage);
           const sessionId = typeof input?.sessionId === "string" ? input.sessionId : "";
           if (sessionId === "") return undefined;
           const events = (await state.eventsFor(signal)).filter((event) => event.sessionId === sessionId);
