@@ -1,0 +1,41 @@
+{
+  "name": "pi-web-cost-meter",
+  "version": "0.1.0",
+  "description": "PI WEB plugin that prices Pi session token usage and shows cost per session, day and model.",
+  "license": "MIT",
+  "author": "kingoliang",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi-web",
+    "pi-web-plugin",
+    "cost",
+    "tokens"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "piWeb": {
+    "plugins": [
+      {
+        "id": "cost-meter",
+        "browserRoot": "dist/browser",
+        "module": "dist/browser/pi-web-plugin.js",
+        "serverModule": "dist/server.mjs"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kingoliang/pi-web-cost-meter.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kingoliang/pi-web-cost-meter/issues"
+  },
+  "homepage": "https://github.com/kingoliang/pi-web-cost-meter#readme"
+}
