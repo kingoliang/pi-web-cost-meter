@@ -208,18 +208,23 @@ function priceOf(prices, match, model) {
   };
 }
 
-/** The provider's own recorded cost wins; the price table is the fallback. */
+/** The price table wins when it knows the model: it is the current, corrected table,
+ * while a recorded cost was written by the provider at call time (and so goes stale
+ * when prices change). A model the table does not know falls back to what the
+ * provider recorded, which beats calling it free. */
 function costOf(usage, rate) {
+  if (rate !== undefined) {
+    const perMillion = 1_000_000;
+    const amount =
+      (usage.input * rate.input +
+        usage.output * rate.output +
+        usage.cacheRead * rate.cacheRead +
+        usage.cacheWrite * rate.cacheWrite) /
+      perMillion;
+    return { amount, source: "priced" };
+  }
   if (usage.recordedCost > 0) return { amount: usage.recordedCost, source: "reported" };
-  if (rate === undefined) return { amount: 0, source: "unpriced" };
-  const perMillion = 1_000_000;
-  const amount =
-    (usage.input * rate.input +
-      usage.output * rate.output +
-      usage.cacheRead * rate.cacheRead +
-      usage.cacheWrite * rate.cacheWrite) /
-    perMillion;
-  return { amount, source: "priced" };
+  return { amount: 0, source: "unpriced" };
 }
 
 function dayKey(at, offsetMinutes) {

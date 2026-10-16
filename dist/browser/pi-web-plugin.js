@@ -307,7 +307,7 @@ const plugin = {
               return html`
                 <div style="display:flex;flex-direction:column;gap:10px">
                   <p class="muted" style="margin:0">
-                    USD per 1,000,000 tokens. A cost the provider already recorded wins; this table prices the rest.
+                    USD per 1,000,000 tokens, taken from the public OpenRouter model list. A model this table does not know falls back to the cost the provider recordings.
                     Transcripts are read from <code>${data.sessionRoot}</code>.
                   </p>
                   <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">

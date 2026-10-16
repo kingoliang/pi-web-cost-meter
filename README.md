@@ -46,10 +46,14 @@ Cost is computed, never guessed from a provider dashboard.
 1. The server half reads this machine's Pi session transcripts
    (`$PI_CODING_AGENT_SESSION_DIR`, default `~/.pi/agent/sessions`) and collects
    each assistant call's token buckets: input, output, cache read, cache write.
-2. A call whose provider already recorded a cost uses that amount. Every other
-   call is priced from the plugin's price table (USD per 1,000,000 tokens) by
+2. Every call is priced from the price table (USD per 1,000,000 tokens) by
    matching the model id, ignoring case, spaces, punctuation and `(annotation)`
-   suffixes.
+   suffixes. A model the table does not know falls back to the cost the provider
+   recorded in the transcript, which beats reporting it as free.
+
+   The table wins over a recorded cost on purpose: a recorded amount was written
+   at call time, so it goes stale the moment you correct a price. Past calls are
+   re-priced on every read; nothing is frozen into a ledger.
 3. The browser half draws the result: a **Cost** page under each project, a cost
    line in the composer, and a price-table editor in **Settings → Cost meter**.
 
@@ -83,8 +87,13 @@ Nothing is sent anywhere; a transcript never leaves the machine.
 
 - Auxiliary calls that a provider does not report usage for (a plugin calling an
   API directly) cannot be priced.
-- The built-in prices are edited defaults. Check them against your provider
-  before relying on the totals; the Settings editor is the place to correct them.
+- The built-in prices come from the public OpenRouter model list
+  (`/api/v1/models`, synced 2026-10-16 for the model families this machine
+  runs). They are list prices, not your contract: check them, and fix them in
+  Settings when they differ.
+- This plugin does not fetch prices. Sync is a copy-paste: read
+  <https://openrouter.ai/api/v1/models>, divide `pricing.*` by 1e6 and paste it
+  into Settings.
 - Subscription channels bill as equivalent cost, not real money.
 - Sub-agent sessions are priced under their own session id.
 
