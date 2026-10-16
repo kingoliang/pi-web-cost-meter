@@ -15,15 +15,29 @@ per model, from the token usage Pi already records.
 Link the folder into PI WEB's local plugin directory on the machine whose
 sessions you want priced:
 
+As a Pi package, so PI WEB discovers and can update it:
+
 ```bash
-mkdir -p ~/.pi-web/plugins
-ln -s /home/kingo.liang/Project/pi-web-cost-meter ~/.pi-web/plugins/pi-web-cost-meter
+pi install git:github.com/kingoliang/pi-web-cost-meter
 systemctl --user restart pi-web-sessiond   # the server half runs in the daemon
 ```
 
+Or link a checkout, which is what you want while editing it:
+
+```bash
+git clone https://github.com/kingoliang/pi-web-cost-meter ~/src/pi-web-cost-meter
+mkdir -p ~/.pi-web/plugins
+ln -s ~/src/pi-web-cost-meter ~/.pi-web/plugins/pi-web-cost-meter
+systemctl --user restart pi-web-sessiond
+```
+
 Then reload the PI WEB tab. The plugin is on by default; turn it off in
-**Settings → PI WEB plugins**. A reader can also install it as a Pi package and
-have PI WEB discover it that way.
+**Settings → PI WEB plugins**.
+
+> **Editing a plugin with a server half needs the restart.** Discovery revision-hashes the
+> whole package, and a browser half whose revision differs from the running server half is
+> withheld from the page. Reloading the tab alone is not enough: restart the session daemon,
+> then reload.
 
 ## How it works
 
