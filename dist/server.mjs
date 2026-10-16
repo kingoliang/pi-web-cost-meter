@@ -25,26 +25,29 @@ const DEFAULT_SCAN_DAYS = 90;
 const MAX_FILES = 8000;
 const MAX_LINES_PER_FILE = 200000;
 
-/** USD per 1,000,000 tokens. Edited defaults, not an official price feed. */
+/** USD per 1,000,000 tokens, from the public OpenRouter model list (/api/v1/models).
+ *  Sync date: 2026-10-16. Editable in Settings; a provider-recorded cost still wins. */
 const DEFAULT_PRICES = {
-  "claude-opus-5-5": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
-  "claude-opus-5": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
-  "claude-opus-4-8": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
-  "claude-opus-4-7": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
-  "claude-opus-4-6": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
-  "claude-opus-4-5": { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
-  "claude-sonnet-5-5": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
-  "claude-sonnet-5": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
-  "claude-sonnet-4-6": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
-  "claude-sonnet-4-5": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
-  "claude-haiku-4-5": { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
-  "claude-fable-5": { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
-  "gpt-5.5": { input: 1.25, output: 10, cacheRead: 0.125 },
-  "gpt-5.3-codex": { input: 1.25, output: 10, cacheRead: 0.125 },
-  "deepseek-v4.1-flash": { input: 0.28, output: 0.42, cacheRead: 0.028 },
-  "deepseek-v4-flash": { input: 0.28, output: 0.42, cacheRead: 0.028 },
-  "qwen3.8-flash": { input: 0.15, output: 0.6, cacheRead: 0.015 },
-  "glm-5.3-flash": { input: 0.2, output: 0.8, cacheRead: 0.02 },
+  "claude-fable-5": { input: 10.0, output: 50.0, cacheRead: 1.0, cacheWrite: 12.5 },
+  "claude-fable-5-1": { input: 10.0, output: 50.0, cacheRead: 0.25, cacheWrite: 12.5 },
+  "claude-haiku-4-5": { input: 1.0, output: 5.0, cacheRead: 0.1, cacheWrite: 1.25 },
+  "claude-haiku-5-5": { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
+  "claude-opus-4-5": { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite: 6.25 },
+  "claude-opus-4-6": { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite: 6.25 },
+  "claude-opus-4-7": { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite: 6.25 },
+  "claude-opus-4-8": { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite: 6.25 },
+  "claude-opus-5": { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite: 6.25 },
+  "claude-opus-5-5": { input: 4.0, output: 20.0, cacheRead: 0.2, cacheWrite: 5.0 },
+  "claude-sonnet-4-5": { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite: 3.75 },
+  "claude-sonnet-4-6": { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite: 3.75 },
+  "claude-sonnet-5": { input: 2.0, output: 10.0, cacheRead: 0.2, cacheWrite: 2.5 },
+  "claude-sonnet-5-5": { input: 2.0, output: 10.0, cacheRead: 0.1, cacheWrite: 2.5 },
+  "deepseek-v4-flash": { input: 0.091, output: 0.182, cacheRead: 0.0182, cacheWrite: 0.091 },
+  "deepseek-v4-pro": { input: 0.337734, output: 0.675468, cacheRead: 0.028144, cacheWrite: 0.337734 },
+  "deepseek-v4.1-flash": { input: 0.036, output: 0.6633, cacheRead: 0.0054, cacheWrite: 0.036 },
+  "qwen3.6-flash": { input: 0.1875, output: 1.125, cacheRead: 0.0, cacheWrite: 0.234375 },
+  "qwen3.7-flash": { input: 0.03, output: 0.13, cacheRead: 0.006, cacheWrite: 0.038 },
+  "qwen3.8-flash": { input: 0.15, output: 0.47, cacheRead: 0.016, cacheWrite: 0.15 },
 };
 
 const EMPTY = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: 0 };
