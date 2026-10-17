@@ -31,7 +31,7 @@ const DEFAULT_PRICES = {
   "claude-fable-5": { input: 10.0, output: 50.0, cacheRead: 1.0, cacheWrite: 12.5 },
   "claude-fable-5-1": { input: 10.0, output: 50.0, cacheRead: 0.25, cacheWrite: 12.5 },
   "claude-haiku-4-5": { input: 1.0, output: 5.0, cacheRead: 0.1, cacheWrite: 1.25 },
-  "claude-haiku-5-5": { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
+  "claude-haiku-5-5": { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125, tiers: [{ inputTokensAbove: 100000, input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625 }] },
   "claude-opus-4-5": { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite: 6.25 },
   "claude-opus-4-6": { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite: 6.25 },
   "claude-opus-4-7": { input: 5.0, output: 25.0, cacheRead: 0.5, cacheWrite: 6.25 },
@@ -91,6 +91,7 @@ function usageOf(usage) {
     output: numberOrZero(usage?.output),
     cacheRead: numberOrZero(usage?.cacheRead),
     cacheWrite: numberOrZero(usage?.cacheWrite),
+    cacheWrite1h: numberOrZero(usage?.cacheWrite1h),
     reasoning: numberOrZero(usage?.reasoning),
     totalTokens: numberOrZero(usage?.totalTokens),
     recordedCost: numberOrZero(usage?.cost?.total),
@@ -99,12 +100,13 @@ function usageOf(usage) {
 
 function addUsage(target, usage) {
   for (const key of Object.keys(EMPTY)) target[key] += usage[key] ?? 0;
+  target.cacheWrite1h += usage.cacheWrite1h ?? 0;
   target.recordedCost += usage.recordedCost ?? 0;
   target.calls += 1;
 }
 
 function emptyTotals() {
-  return { ...EMPTY, recordedCost: 0, calls: 0 };
+  return { ...EMPTY, cacheWrite1h: 0, recordedCost: 0, calls: 0 };
 }
 
 async function listTranscripts(root, scanDays) {
@@ -196,39 +198,74 @@ async function parseTranscript(entry) {
 function priceOf(prices, match, model) {
   const key = match(model);
   if (key === undefined) return { key: undefined, rate: undefined };
-  const rate = prices[key];
-  return {
-    key,
-    rate: {
-      input: numberOrZero(rate.input),
-      output: numberOrZero(rate.output),
-      cacheRead: numberOrZero(rate.cacheRead),
-      cacheWrite: numberOrZero(rate.cacheWrite ?? rate.cacheRead),
-    },
+  const entry = prices[key];
+  const rate = {
+    input: numberOrZero(entry.input),
+    output: numberOrZero(entry.output),
+    cacheRead: numberOrZero(entry.cacheRead),
+    cacheWrite: numberOrZero(entry.cacheWrite ?? entry.cacheRead),
+    ...(Array.isArray(entry.tiers)
+      ? {
+          tiers: entry.tiers
+            .filter((tier) => tier !== null && typeof tier === "object" && Number.isFinite(tier.inputTokensAbove))
+            .map((tier) => ({
+              inputTokensAbove: numberOrZero(tier.inputTokensAbove),
+              input: numberOrZero(tier.input),
+              output: numberOrZero(tier.output),
+              cacheRead: numberOrZero(tier.cacheRead),
+              cacheWrite: numberOrZero(tier.cacheWrite ?? tier.cacheRead),
+            })),
+        }
+      : {}),
   };
+  return { key, rate };
 }
 
 /** The price table wins when it knows the model: it is the current, corrected table,
  * while a recorded cost was written by the provider at call time (and so goes stale
  * when prices change). A model the table does not know falls back to what the
- * provider recorded, which beats calling it free. */
+ * provider recorded, which beats calling it free.
+ *
+ * The arithmetic mirrors pi's own calculateCost: the tier is chosen on the whole
+ * prompt (input plus both cache buckets), a long-lived cache write bills at twice
+ * the input rate, and reasoning tokens already sit inside output.
+ */
 function costOf(usage, rate) {
-  if (rate !== undefined) {
-    const perMillion = 1_000_000;
-    const amount =
-      (usage.input * rate.input +
-        usage.output * rate.output +
-        usage.cacheRead * rate.cacheRead +
-        usage.cacheWrite * rate.cacheWrite) /
-      perMillion;
-    return { amount, source: "priced" };
+  if (rate === undefined) {
+    if (usage.recordedCost > 0) return { amount: usage.recordedCost, source: "reported" };
+    return { amount: 0, source: "unpriced" };
   }
-  if (usage.recordedCost > 0) return { amount: usage.recordedCost, source: "reported" };
-  return { amount: 0, source: "unpriced" };
+  const promptTokens = usage.input + usage.cacheRead + usage.cacheWrite;
+  let rates = rate;
+  let matched = -1;
+  for (const tier of rate.tiers ?? []) {
+    if (promptTokens > tier.inputTokensAbove && tier.inputTokensAbove > matched) {
+      rates = tier;
+      matched = tier.inputTokensAbove;
+    }
+  }
+  const longWrite = Math.min(usage.cacheWrite1h, usage.cacheWrite);
+  const shortWrite = Math.max(usage.cacheWrite - longWrite, 0);
+  const perMillion = 1_000_000;
+  const amount =
+    (usage.input * rates.input +
+      usage.output * rates.output +
+      usage.cacheRead * rates.cacheRead +
+      shortWrite * rates.cacheWrite +
+      longWrite * rates.input * 2) /
+    perMillion;
+  return { amount, source: "priced" };
 }
 
 function dayKey(at, offsetMinutes) {
   return new Date(at + offsetMinutes * 60_000).toISOString().slice(0, 10);
+}
+
+/** Days are grouped like the window is anchored: local calendar days, not UTC ones. */
+function localDayKey(at) {
+  const d = new Date(at);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${String(d.getFullYear())}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 function createState(logger) {
@@ -296,7 +333,6 @@ function createState(logger) {
   }
 
   function summarize(events, until) {
-    const offset = 0;
     const byDay = new Map();
     const byModel = new Map();
     const bySession = new Map();
@@ -320,7 +356,7 @@ function createState(logger) {
         totals.unpricedCalls += 1;
         if (event.model !== "") totals.unpricedModels.add(event.model);
       }
-      const day = bucket(byDay, dayKey(event.at, offset), {});
+      const day = bucket(byDay, localDayKey(event.at), {});
       addUsage(day.totals, usage);
       const model = bucket(byModel, event.model === "" ? "(unknown)" : event.model, { provider: event.provider });
       addUsage(model.totals, usage);
