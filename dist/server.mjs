@@ -273,6 +273,15 @@ function createState(logger) {
   let prices = { ...DEFAULT_PRICES };
   let config = { currency: "USD", fxRate: 7.2, scanDays: DEFAULT_SCAN_DAYS, peakMultiplier: 1 };
   let match = makeMatcher(prices);
+  // `listTranscripts` walks every session directory and `stat`s every transcript
+  // file; on a machine with many sessions that readdir/stat sweep itself (not
+  // the per-file parse, which is already cached by mtime+size) dominates request
+  // time. `cost.overview` and `cost.session` each call `eventsFor` once per page
+  // load, so without this they redo the same sweep twice in a row. A short TTL
+  // lets same-tick callers share one sweep while staying fresh enough that a
+  // just-finished turn's transcript shows up within a few seconds.
+  let dirSweep;
+  const DIR_SWEEP_TTL_MS = 60_000;
 
   async function load(storage) {
     const stored = await storage.read(PRICES_KEY).catch(() => undefined);
@@ -310,8 +319,15 @@ function createState(logger) {
     if (next.scanDays !== undefined) config.scanDays = Math.min(Math.max(Math.round(numberOrZero(next.scanDays)) || DEFAULT_SCAN_DAYS, 1), 3650);
   }
 
-  async function eventsFor(signal) {
-    const entries = await listTranscripts(sessionRoot(), config.scanDays);
+  async function eventsFor(signal, { forceRescan = false } = {}) {
+    const now = Date.now();
+    let entries;
+    if (!forceRescan && dirSweep !== undefined && now - dirSweep.at < DIR_SWEEP_TTL_MS && dirSweep.scanDays === config.scanDays) {
+      entries = dirSweep.entries;
+    } else {
+      entries = await listTranscripts(sessionRoot(), config.scanDays);
+      dirSweep = { at: now, scanDays: config.scanDays, entries };
+    }
     const events = [];
     const seen = new Set();
     for (const entry of entries) {
@@ -462,7 +478,7 @@ const plugin = {
           return { prices: state.prices };
         },
         "cost.rescan": async () => {
-          const events = await state.eventsFor();
+          const events = await state.eventsFor(undefined, { forceRescan: true });
           return { calls: events.length };
         },
         "cost.overview": async (input, { signal }) => {
