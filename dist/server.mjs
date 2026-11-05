@@ -14,10 +14,9 @@
 // A message's own model/provider wins; otherwise the last model_change before it.
 
 import { createReadStream } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
+import { open, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { createInterface } from "node:readline";
 
 const PLUGIN_ID = "cost-meter";
 const PRICES_KEY = "prices";
@@ -143,56 +142,69 @@ async function listTranscripts(root, scanDays) {
   return found;
 }
 
-async function parseTranscript(entry) {
-  const events = [];
-  let header = { id: "", cwd: "" };
-  let model = { provider: "", model: "" };
-  let lines = 0;
-  const stream = createReadStream(entry.path, { encoding: "utf8" });
-  const reader = createInterface({ input: stream, crlfDelay: Infinity });
-  try {
-    for await (const line of reader) {
-      if (line === "" || (lines += 1) > MAX_LINES_PER_FILE) continue;
-      let record;
-      try {
-        record = JSON.parse(line);
-      } catch {
-        continue;
+const MAX_TAIL_BYTES = 64 * 1024 * 1024;
+
+/** 会话 transcript 是只追加的 JSONL：记住已读到的字节位置，只解析新增部分。
+ *  一份 250 MB / 9 万行的活动会话整份重解析要十几秒；改成增量后每次只有新增那一小段。
+ *  `prev` 来自缓存；文件变小（重写/压缩）或没给缓存时从头解析。 */
+async function parseTranscript(entry, prev) {
+  const resume = prev !== undefined && prev.offset > 0 && entry.size >= prev.offset && prev.header !== undefined;
+  let start = resume ? prev.offset : 0;
+  if (entry.size - start > MAX_TAIL_BYTES) start = entry.size - MAX_TAIL_BYTES;
+  const events = resume ? prev.events.slice() : [];
+  let header = resume ? prev.header : { id: "", cwd: "" };
+  let model = resume ? prev.model : { provider: "", model: "" };
+  let lines = resume ? prev.lines : 0;
+  const length = entry.size - start;
+  let consumed = start;
+  if (length > 0) {
+    const handle = await open(entry.path, "r");
+    try {
+      const buffer = Buffer.allocUnsafe(length);
+      const { bytesRead } = await handle.read(buffer, 0, length, start);
+      const text = buffer.toString("utf8", 0, bytesRead);
+      const complete = text.endsWith("\n") ? text : text.slice(0, text.lastIndexOf("\n") + 1);
+      consumed = start + Buffer.byteLength(complete, "utf8");
+      for (const line of complete.split("\n")) {
+        if (line === "" || (lines += 1) > MAX_LINES_PER_FILE) continue;
+        let record;
+        try {
+          record = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (record?.type === "session") {
+          header = { id: String(record.id ?? ""), cwd: String(record.cwd ?? "") };
+          continue;
+        }
+        if (record?.type === "model_change") {
+          model = { provider: String(record.provider ?? ""), model: String(record.modelId ?? "") };
+          continue;
+        }
+        if (record?.type !== "message") continue;
+        const message = record.message;
+        if (message?.role !== "assistant" || message.usage === undefined) continue;
+        const usage = usageOf(message.usage);
+        if (usage.totalTokens === 0 && usage.input === 0 && usage.output === 0) continue;
+        events.push({
+          at: Date.parse(record.timestamp ?? message.timestamp ?? "") || 0,
+          sessionId: header.id,
+          cwd: header.cwd,
+          provider: String(message.provider ?? model.provider ?? ""),
+          model: String(message.model ?? model.model ?? ""),
+          ...usage,
+        });
       }
-      if (record?.type === "session") {
-        header = { id: String(record.id ?? ""), cwd: String(record.cwd ?? "") };
-        continue;
-      }
-      if (record?.type === "model_change") {
-        model = { provider: String(record.provider ?? ""), model: String(record.modelId ?? "") };
-        continue;
-      }
-      if (record?.type !== "message") continue;
-      const message = record.message;
-      if (message?.role !== "assistant" || message.usage === undefined) continue;
-      const usage = usageOf(message.usage);
-      if (usage.totalTokens === 0 && usage.input === 0 && usage.output === 0) continue;
-      events.push({
-        at: Date.parse(record.timestamp ?? message.timestamp ?? "") || 0,
-        sessionId: header.id,
-        cwd: header.cwd,
-        provider: String(message.provider ?? model.provider ?? ""),
-        model: String(message.model ?? model.model ?? ""),
-        ...usage,
-      });
+    } finally {
+      await handle.close();
     }
-  } catch {
-    /* a truncated last line is normal while a turn is running */
-  } finally {
-    reader.close();
-    stream.close();
   }
   if (header.id === "" && events.length > 0) {
     const stem = entry.path.split("/").pop() ?? "";
-    header.id = stem.replace(/\.jsonl$/, "").split("_").slice(-1)[0] ?? "";
+    header = { id: stem.replace(/\.jsonl$/, "").split("_").slice(-1)[0] ?? "", cwd: header.cwd };
     for (const event of events) event.sessionId = header.id;
   }
-  return { events, header };
+  return { events, header, model, lines, offset: consumed };
 }
 
 function priceOf(prices, match, model) {
@@ -339,10 +351,19 @@ function createState(logger) {
         events.push(...hit.events);
         continue;
       }
-      const parsed = await parseTranscript(entry);
-      cache.set(key, { mtimeMs: entry.mtimeMs, size: entry.size, events: parsed.events });
-      logger.debug?.(`priced ${String(parsed.events.length)} calls`, { file: entry.path });
-      events.push(...parsed.events);
+      const parsed = await parseTranscript(entry, hit);
+      const merged = parsed.events;
+      cache.set(key, {
+        mtimeMs: entry.mtimeMs,
+        size: entry.size,
+        offset: parsed.offset,
+        header: parsed.header,
+        model: parsed.model,
+        lines: parsed.lines,
+        events: merged,
+      });
+      logger.debug?.(`priced ${String(merged.length)} calls`, { file: entry.path });
+      events.push(...merged);
     }
     for (const key of [...cache.keys()]) if (!seen.has(key)) cache.delete(key);
     return events;
